@@ -1,0 +1,10 @@
+[package]
+name = "idf"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+
+[dependencies]
+pest = "2.7"
+pest_derive = "2.7"
