@@ -8,3 +8,5 @@ edition = "2021"
 [dependencies]
 pest = "2.7"
 pest_derive = "2.7"
+either = "1.9"
+thiserror = "1.0"
