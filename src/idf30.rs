@@ -1,3 +1,4 @@
+use std::fmt::{Display, Formatter};
 use std::num::{ParseFloatError, ParseIntError};
 use either::Either;
 use pest::iterators::Pairs;
@@ -52,16 +53,49 @@ pub struct Header<'a> {
     units: Unit
 }
 
+impl<'a> Display for Header<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            ".HEADER\n{} 3.0 {} {} {}\n{} {}\n.END_HEADER\n",
+            self.ty,
+            self.source,
+            self.date,
+            self.board_file_version,
+            self.board_name,
+            self.units
+        )
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum FileType {
     BoardFile,
     PanelFile
 }
 
+impl Display for FileType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FileType::BoardFile => write!(f, "BOARD_FILE"),
+            FileType::PanelFile => write!(f, "PANEL_FILE")
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum Unit {
     SImm,
     Mils
+}
+
+impl Display for Unit {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Unit::SImm => write!(f, "MM"),
+            Unit::Mils => write!(f, "THOU"),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -71,6 +105,21 @@ pub struct IdfSection<'a> {
     /// e.g. ECAD in 'BOARD_OUTLINE ECAD'
     args: Vec<Either<&'a str, String>>,
     records: Vec<Vec<IdfValue<'a>>>
+}
+
+impl<'a> Display for IdfSection<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let args: String = self.args.iter().map(|arg| format!(" {arg}")).collect();
+        let mut records = String::new();
+        for record in self.records.iter() {
+            records.push_str(" ");
+            for v in record {
+                records.push_str(format!(" {v}").as_str());
+            }
+            records.push_str("\n");
+        }
+        write!(f, ".{}{}\n{}.END_{}\n", self.name, args, records, self.name)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -86,6 +135,20 @@ pub struct Component<'a> {
     pub placement_status: PlacementStatus,
 }
 
+impl<'a> Display for Component<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} {} {}\n  {:.4} {:.4} {:.4} {:.3} {} {}\n",
+            escape_string(&self.package_name),
+            escape_string(&self.part_number),
+            self.designator,
+            self.x, self.y, self.z, self.rotation,
+            self.board_side, self.placement_status
+        )
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum ReferenceDesignator<'a> {
     Any(Either<&'a str, String>),
@@ -93,10 +156,29 @@ pub enum ReferenceDesignator<'a> {
     Board
 }
 
+impl<'a> Display for ReferenceDesignator<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ReferenceDesignator::Any(d) => write!(f, "{d}"),
+            ReferenceDesignator::NoRefDes => write!(f, "NOREFDES"),
+            ReferenceDesignator::Board => write!(f, "BOARD")
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum BoardSide {
     Top,
     Bottom
+}
+
+impl Display for BoardSide {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BoardSide::Top => write!(f, "TOP"),
+            BoardSide::Bottom => write!(f, "BOTTOM")
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -107,11 +189,47 @@ pub enum PlacementStatus {
     ECad
 }
 
+impl Display for PlacementStatus {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PlacementStatus::Placed => write!(f, "PLACED"),
+            PlacementStatus::Unplaced => write!(f, "UNPLACED"),
+            PlacementStatus::MCad => write!(f, "MCAD"),
+            PlacementStatus::ECad => write!(f, "ECAD"),
+        }
+    }
+}
+
 #[derive(Clone, PartialEq, Debug)]
 pub enum IdfValue<'a> {
     Integer(i64),
     Float(f64),
     String(Either<&'a str, String>),
+}
+
+impl<'a> Display for IdfValue<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            IdfValue::Integer(x) => write!(f, "{x}"),
+            IdfValue::Float(x) => write!(f, "{x:.4}"),
+            IdfValue::String(s) => write!(f, "{}", escape_string(s))
+        }
+    }
+}
+
+fn escape_string<'a: 'b, 'b>(s: &'b Either<&'a str, String>) -> &'b str {
+    match s {
+        Either::Left(s) => if s.is_empty() {
+            "\"\""
+        } else {
+            s
+        }
+        Either::Right(s) => if s.is_empty() {
+            "\"\""
+        } else {
+            s.as_str()
+        }
+    }
 }
 
 macro_rules! next_inner {
@@ -133,11 +251,11 @@ macro_rules! next_str {
     }};
 }
 
-macro_rules! next_int {
-    ($pairs:expr) => {
-
-    };
-}
+// macro_rules! next_int {
+//     ($pairs:expr) => {
+//
+//     };
+// }
 
 macro_rules! next_float {
     ($pairs:expr) => {{
@@ -150,72 +268,86 @@ macro_rules! next_float {
     }};
 }
 
-pub fn parse_idf30_file(file: &str) -> Result<Idf30, Error> {
-    let mut idf30 = Idf30Parser::parse(Rule::idf30, file)?;
-    // println!("{idf30:#?}");
-    let header = parse_header(&mut idf30)?;
-    let mut placement = vec![];
-    let mut other_sections = vec![];
-    while let Some(section) = idf30.next() {
-        if section.as_rule() == Rule::EOI {
-            break;
-        }
-        let mut section = section.into_inner();
-        let mut section_header = next_inner!(section);
-        let section_name = next_str!(next_inner!(section_header));
-        // println!("Section: {section_name}");
-        if section_name == "PLACEMENT" {
-            while let Some(record) = section.next() {
-                if record.as_rule() == Rule::section_name {
-                    break;
-                }
-                let record = record.into_inner();
-                let component = parse_component(&mut section, record)?;
-                placement.push(component);
+impl<'a> Idf30<'a> {
+    pub fn parse(file: &str) -> Result<Idf30, Error> {
+        let mut idf30 = Idf30Parser::parse(Rule::idf30, file)?;
+        // println!("{idf30:#?}");
+        let header = parse_header(&mut idf30)?;
+        let mut placement = vec![];
+        let mut other_sections = vec![];
+        while let Some(section) = idf30.next() {
+            if section.as_rule() == Rule::EOI {
+                break;
             }
-        } else {
-            let args = section_header.into_iter().map(|arg| Either::Left(arg.as_str())).collect();
-            let mut records = vec![];
-            while let Some(record) = section.next() {
-                if record.as_rule() == Rule::section_name {
-                    break;
-                }
-                let mut record = record.into_inner();
-                let values: Result<Vec<IdfValue>, Error> = record.into_iter().map(|p| {
-                    match p.as_rule() {
-                        Rule::integer => {
-                            Ok(IdfValue::Integer(p.as_str().parse()?))
-                        }
-                        Rule::float => {
-                            Ok(IdfValue::Float(p.as_str().parse()?))
-                        }
-                        Rule::string => {
-                            Ok(IdfValue::String(Either::Left(p.as_str())))
-                        }
-                        Rule::quoted_string => {
-                            Ok(IdfValue::String(Either::Left(p.as_str())))
-                        }
-                        _ => {
-                            return Err(Error::GrammarExpectedRule(Rule::value))
-                        }
+            let mut section = section.into_inner();
+            let mut section_header = next_inner!(section);
+            let section_name = next_str!(next_inner!(section_header));
+            if section_name == "PLACEMENT" {
+                while let Some(record) = section.next() {
+                    if record.as_rule() == Rule::section_name {
+                        break;
                     }
-                }).collect();
-                records.push(values?);
+                    let record = record.into_inner();
+                    let component = parse_component(&mut section, record)?;
+                    placement.push(component);
+                }
+            } else {
+                let args = section_header.into_iter().map(|arg| Either::Left(arg.as_str())).collect();
+                let mut records = vec![];
+                while let Some(record) = section.next() {
+                    if record.as_rule() == Rule::section_name {
+                        break;
+                    }
+                    let record = record.into_inner();
+                    let values: Result<Vec<IdfValue>, Error> = record.into_iter().map(|p| {
+                        match p.as_rule() {
+                            Rule::integer => {
+                                Ok(IdfValue::Integer(p.as_str().parse()?))
+                            }
+                            Rule::float => {
+                                Ok(IdfValue::Float(p.as_str().parse()?))
+                            }
+                            Rule::string => {
+                                Ok(IdfValue::String(Either::Left(p.as_str())))
+                            }
+                            Rule::quoted_string => {
+                                Ok(IdfValue::String(Either::Left(p.as_str())))
+                            }
+                            _ => {
+                                return Err(Error::GrammarExpectedRule(Rule::value))
+                            }
+                        }
+                    }).collect();
+                    records.push(values?);
+                }
+                let section = IdfSection {
+                    name: Either::Left(section_name),
+                    args,
+                    records,
+                };
+                other_sections.push(section);
             }
-            let section = IdfSection {
-                name: Either::Left(section_name),
-                args,
-                records,
-            };
-            other_sections.push(section);
         }
+
+        Ok(Idf30 {
+            header,
+            placement,
+            other_sections,
+        })
     }
 
-    Ok(Idf30 {
-        header,
-        placement,
-        other_sections,
-    })
+    pub fn to_string(&self) -> String {
+        let mut s = format!("{}", self.header);
+        for o in &self.other_sections {
+            s.push_str(format!("{o}").as_str())
+        }
+        s.push_str(".PLACEMENT\n");
+        for c in &self.placement {
+            s.push_str(format!("{c}").as_str())
+        }
+        s.push_str(".END_PLACEMENT\n");
+        s
+    }
 }
 
 fn parse_component<'a>(section: &mut Pairs<Rule>, mut record: Pairs<'a, Rule>) -> Result<Component<'a>, Error> {
