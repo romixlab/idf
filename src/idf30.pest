@@ -6,15 +6,14 @@ float   = @{ integer ~ "." ~ ASCII_DIGIT+ }
 string     = ${ ASCII_ALPHA ~ char* }
 string_num_allowed = ${ ASCII_ALPHANUMERIC ~ char* }
 char             =  _{ ASCII_ALPHANUMERIC | "_" | "." | "/" | ":" | "?" | "-" }
-quoted_string   = ${ ("'" | "\"") ~ char* ~ ("'" | "\"") }
+quoted_string   = ${ ("'" | "\"") ~ (!("'" | "\"") ~ ANY)* ~ ("'" | "\"") }
 
 section_name   = { "." ~ string }
 section_header =  { section_name ~ string* ~ NEWLINE }
-header_section = { section_header ~ string_only_record* ~ section_name ~ NEWLINE }
-section        =  { section_header ~ record* ~ section_name ~ NEWLINE }
+header_section = { section_header ~ string_only_record+ ~ section_name ~ NEWLINE }
+section        =  { section_header ~ record* ~ section_name ~ (NEWLINE | EOI) }
 
 value  = _{ string | float | integer | quoted_string }
-// value_test = {SOI ~ value ~ EOI}
 record =  { value+ ~ NEWLINE }
 string_only_record = { (string_num_allowed | quoted_string)+ ~ NEWLINE }
 

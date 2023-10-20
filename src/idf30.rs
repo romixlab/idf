@@ -39,46 +39,59 @@ pub enum Error {
 #[derive(Clone, Debug)]
 pub struct Idf30<'a> {
     pub header: Header<'a>,
-    pub placement: Vec<Component<'a>>,
-    pub other_sections: Vec<IdfSection<'a>>
+    pub placement: Vec<ComponentPlacement<'a>>,
+    pub other_sections: Vec<IdfSection<'a>>,
 }
 
 #[derive(Clone, Debug)]
 pub struct Header<'a> {
-    ty: FileType,
-    source: Either<&'a str, String>,
-    date: Either<&'a str, String>,
-    board_file_version: u32,
-    board_name: Either<&'a str, String>,
-    units: Unit
+    pub ty: FileType<'a>,
+    pub source: Either<&'a str, String>,
+    pub date: Either<&'a str, String>,
+    pub board_file_version: u32,
 }
 
 impl<'a> Display for Header<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let record1 = match &self.ty {
+            FileType::BoardFile { board_name, units } | FileType::PanelFile { board_name, units } => {
+                format!("{} {}\n", board_name, units)
+            }
+            FileType::LibraryFile { .. } => String::new()
+        };
         write!(
             f,
-            ".HEADER\n{} 3.0 {} {} {}\n{} {}\n.END_HEADER\n",
+            ".HEADER\n{} 3.0 {} {} {}\n{}.END_HEADER\n",
             self.ty,
             self.source,
             self.date,
             self.board_file_version,
-            self.board_name,
-            self.units
+            record1
         )
     }
 }
 
 #[derive(Clone, Debug)]
-pub enum FileType {
-    BoardFile,
-    PanelFile
+pub enum FileType<'a> {
+    BoardFile {
+        board_name: Either<&'a str, String>,
+        units: Unit
+    },
+    PanelFile {
+        board_name: Either<&'a str, String>,
+        units: Unit
+    },
+    LibraryFile {
+        components: Vec<ComponentDefinition<'a>>
+    },
 }
 
-impl Display for FileType {
+impl<'a> Display for FileType<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            FileType::BoardFile => write!(f, "BOARD_FILE"),
-            FileType::PanelFile => write!(f, "PANEL_FILE")
+            FileType::BoardFile { .. } => write!(f, "BOARD_FILE"),
+            FileType::PanelFile { .. } => write!(f, "PANEL_FILE"),
+            FileType::LibraryFile { .. } => write!(f, "LIBRARY_FILE"),
         }
     }
 }
@@ -123,7 +136,7 @@ impl<'a> Display for IdfSection<'a> {
 }
 
 #[derive(Clone, Debug)]
-pub struct Component<'a> {
+pub struct ComponentPlacement<'a> {
     pub package_name: Either<&'a str, String>,
     pub part_number: Either<&'a str, String>,
     pub designator: ReferenceDesignator<'a>,
@@ -135,7 +148,7 @@ pub struct Component<'a> {
     pub placement_status: PlacementStatus,
 }
 
-impl<'a> Display for Component<'a> {
+impl<'a> Display for ComponentPlacement<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -147,6 +160,57 @@ impl<'a> Display for Component<'a> {
             self.board_side, self.placement_status
         )
     }
+}
+
+#[derive(Clone, Debug)]
+pub struct ComponentDefinition<'a> {
+    pub geometry_name: Either<&'a str, String>,
+    pub part_number: Either<&'a str, String>,
+    pub units: Unit,
+    pub height: f32,
+    pub points: Vec<Point>,
+}
+
+impl<'a> ComponentDefinition<'a> {
+    pub fn to_string(&self) -> String {
+        let mut s = format!(
+            ".ELECTRICAL\n{} {} {} {:.4}\n",
+            self.geometry_name,
+            self.part_number,
+            self.units,
+            self.height
+        );
+        for p in &self.points {
+            let label = if p.label == LoopLabel::CounterClockwise {
+                0
+            } else {
+                1
+            };
+            s.push_str(format!(
+                "{} {:.4} {:.4} {:.4}\n",
+                label,
+                p.x,
+                p.y,
+                p.angle
+            ).as_str());
+        }
+        s.push_str(".END_ELECTRICAL\n");
+        s
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Point {
+    pub label: LoopLabel,
+    pub x: f32,
+    pub y: f32,
+    pub angle: f32
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum LoopLabel {
+    Clockwise,
+    CounterClockwise
 }
 
 #[derive(Clone, Debug)]
@@ -162,6 +226,19 @@ impl<'a> Display for ReferenceDesignator<'a> {
             ReferenceDesignator::Any(d) => write!(f, "{d}"),
             ReferenceDesignator::NoRefDes => write!(f, "NOREFDES"),
             ReferenceDesignator::Board => write!(f, "BOARD")
+        }
+    }
+}
+
+impl<'a> ReferenceDesignator<'a> {
+    pub fn is_test_point(&self) -> bool {
+        match self {
+            ReferenceDesignator::Any(d) => match d {
+                Either::Left(d)  => d.starts_with("TP"),
+                Either::Right(d)  => d.starts_with("TP"),
+            }
+            ReferenceDesignator::NoRefDes => false,
+            ReferenceDesignator::Board => false
         }
     }
 }
@@ -251,11 +328,17 @@ macro_rules! next_str {
     }};
 }
 
-// macro_rules! next_int {
-//     ($pairs:expr) => {
-//
-//     };
-// }
+macro_rules! next_int {
+    ($pairs:expr) => {{
+        let pair = $pairs.next().ok_or(Error::GrammarExpectedPair)?;
+        if pair.as_rule() == Rule::integer {
+            pair.as_str().parse()?
+        } else {
+            return Err(Error::GrammarExpectedRule(pair.as_rule()));
+        }
+    }};
+
+}
 
 macro_rules! next_float {
     ($pairs:expr) => {{
@@ -272,9 +355,10 @@ impl<'a> Idf30<'a> {
     pub fn parse(file: &str) -> Result<Idf30, Error> {
         let mut idf30 = Idf30Parser::parse(Rule::idf30, file)?;
         // println!("{idf30:#?}");
-        let header = parse_header(&mut idf30)?;
+        let mut header = parse_header(&mut idf30)?;
         let mut placement = vec![];
         let mut other_sections = vec![];
+        let mut components_definitions = vec![];
         while let Some(section) = idf30.next() {
             if section.as_rule() == Rule::EOI {
                 break;
@@ -288,9 +372,12 @@ impl<'a> Idf30<'a> {
                         break;
                     }
                     let record = record.into_inner();
-                    let component = parse_component(&mut section, record)?;
+                    let component = parse_component_placement(&mut section, record)?;
                     placement.push(component);
                 }
+            } else if section_name == "ELECTRICAL" {
+                let component = parse_component_definition(&mut section)?;
+                components_definitions.push(component);
             } else {
                 let args = section_header.into_iter().map(|arg| Either::Left(arg.as_str())).collect();
                 let mut records = vec![];
@@ -329,6 +416,10 @@ impl<'a> Idf30<'a> {
             }
         }
 
+        if matches!(header.ty, FileType::LibraryFile { .. }) {
+            header.ty = FileType::LibraryFile { components: components_definitions };
+        }
+
         Ok(Idf30 {
             header,
             placement,
@@ -341,16 +432,26 @@ impl<'a> Idf30<'a> {
         for o in &self.other_sections {
             s.push_str(format!("{o}").as_str())
         }
-        s.push_str(".PLACEMENT\n");
-        for c in &self.placement {
-            s.push_str(format!("{c}").as_str())
+        match &self.header.ty {
+            FileType::BoardFile { .. } => {
+                s.push_str(".PLACEMENT\n");
+                for c in &self.placement {
+                    s.push_str(format!("{c}").as_str())
+                }
+                s.push_str(".END_PLACEMENT\n");
+            }
+            FileType::PanelFile { .. } => {}
+            FileType::LibraryFile { components } => {
+                for def in components {
+                    s.push_str(def.to_string().as_str());
+                }
+            }
         }
-        s.push_str(".END_PLACEMENT\n");
         s
     }
 }
 
-fn parse_component<'a>(section: &mut Pairs<Rule>, mut record: Pairs<'a, Rule>) -> Result<Component<'a>, Error> {
+fn parse_component_placement<'a>(section: &mut Pairs<Rule>, mut record: Pairs<'a, Rule>) -> Result<ComponentPlacement<'a>, Error> {
     let package_name = Either::Left(next_str!(record));
     let part_number = Either::Left(next_str!(record));
     let designator = next_str!(record);
@@ -382,7 +483,7 @@ fn parse_component<'a>(section: &mut Pairs<Rule>, mut record: Pairs<'a, Rule>) -
             return Err(Error::Malformed("Wrong placement status"));
         }
     };
-    Ok(Component {
+    Ok(ComponentPlacement {
         package_name,
         part_number,
         designator,
@@ -395,15 +496,38 @@ fn parse_component<'a>(section: &mut Pairs<Rule>, mut record: Pairs<'a, Rule>) -
     })
 }
 
-fn parse_header<'a>(idf30: &mut Pairs<'a, Rule>) -> Result<Header<'a>, Error> {
-    let mut header_section = next_inner!(idf30);
+fn parse_header<'a>(pairs: &mut Pairs<'a, Rule>) -> Result<Header<'a>, Error> {
+    let mut header_section = next_inner!(pairs);
     if next_str!(next_inner!(next_inner!(header_section))) != "HEADER" {
         return Err(Error::MissingHeader);
     }
     let mut header_record0 = next_inner!(header_section);
     let ty = match next_str!(header_record0) {
-        "BOARD_FILE" => FileType::BoardFile,
-        "PANEL_FILE" => FileType::PanelFile,
+        t @ "BOARD_FILE" | t @ "PANEL_FILE" => {
+            let mut header_record1 = next_inner!(header_section);
+            let board_name = Either::Left(next_str!(header_record1));
+            let units = match next_str!(header_record1) {
+                "MM" => Unit::SImm,
+                "THOU" => Unit::Mils,
+                _ => {
+                    return Err(Error::WrongUnit);
+                }
+            };
+            if t == "BOARD_FILE" {
+                FileType::BoardFile {
+                    board_name,
+                    units
+                }
+            } else {
+                FileType::PanelFile {
+                    board_name,
+                    units
+                }
+            }
+        },
+        "LIBRARY_FILE" => FileType::LibraryFile {
+            components: vec![]
+        },
         _ => {
             return Err(Error::WrongFileType)
         }
@@ -414,22 +538,61 @@ fn parse_header<'a>(idf30: &mut Pairs<'a, Rule>) -> Result<Header<'a>, Error> {
     let source = Either::Left(next_str!(header_record0));
     let date = Either::Left(next_str!(header_record0));
     let board_file_version = next_str!(header_record0).parse()?;
-    let mut header_record1 = next_inner!(header_section);
-    let board_name = Either::Left(next_str!(header_record1));
-    let units = match next_str!(header_record1) {
+    let header = Header {
+        ty,
+        source,
+        date,
+        board_file_version,
+    };
+    Ok(header)
+}
+
+fn parse_component_definition<'a>(section: &mut Pairs<'a, Rule>) -> Result<ComponentDefinition<'a>, Error> {
+    // println!("cmp def: {section:?}");
+    let mut record2 = next_inner!(section);
+    let geometry_name = Either::Left(next_str!(record2));
+    let part_number = Either::Left(next_str!(record2));
+    let units = match next_str!(record2) {
         "MM" => Unit::SImm,
         "THOU" => Unit::Mils,
         _ => {
             return Err(Error::WrongUnit);
         }
     };
-    let header = Header {
-        ty,
-        source,
-        date,
-        board_file_version,
-        board_name,
-        units
-    };
-    Ok(header)
+    let height = next_float!(record2);
+    let mut points = vec![];
+    while let Some(coords) = section.next() {
+        // println!("{coords:?}");
+        if coords.as_rule() == Rule::section_name {
+            break;
+        }
+        let mut coords = coords.into_inner();
+        if let Some(p) = coords.peek() {
+            if p.as_str() == "PROP" {
+                continue;
+            }
+        }
+        let label: u32 = next_int!(coords);
+        let label = if label == 0 {
+            LoopLabel::CounterClockwise
+        } else {
+            LoopLabel::Clockwise
+        };
+        let x = next_float!(coords);
+        let y = next_float!(coords);
+        let angle = next_float!(coords);
+        points.push(Point {
+            label,
+            x,
+            y,
+            angle,
+        });
+    }
+    Ok(ComponentDefinition {
+        geometry_name,
+        part_number,
+        units,
+        height,
+        points,
+    })
 }
