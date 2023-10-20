@@ -1,7 +1,6 @@
 use either::Either;
 use idf::idf30::{FileType, Idf30};
 use std::env;
-use std::fmt::format;
 use std::fs::read_to_string;
 
 fn main() {
@@ -57,6 +56,6 @@ fn main() {
         println!("After removing duplicates: {}", seen.len());
     }
 
-    std::fs::write("./out.idf", idf_file.to_string()).expect("Write file failed");
+    std::fs::write("./out.bdf", idf_file.to_string()).expect("Write file failed");
     std::fs::write("./out.ldf", ldf_file.to_string()).expect("Write file failed");
 }
