@@ -1,9 +1,9 @@
-use std::fmt::{Display, Formatter};
-use std::num::{ParseFloatError, ParseIntError};
 use either::Either;
 use pest::iterators::Pairs;
 use pest::Parser;
 use pest_derive::Parser;
+use std::fmt::{Display, Formatter};
+use std::num::{ParseFloatError, ParseIntError};
 use thiserror::Error;
 
 #[derive(Parser)]
@@ -33,7 +33,7 @@ pub enum Error {
     #[error("Internal grammar error")]
     GrammarExpectedPair,
     #[error("Expected different rule, got: {:?}", .0)]
-    GrammarExpectedRule(Rule)
+    GrammarExpectedRule(Rule),
 }
 
 #[derive(Clone, Debug)]
@@ -54,19 +54,16 @@ pub struct Header<'a> {
 impl<'a> Display for Header<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let record1 = match &self.ty {
-            FileType::BoardFile { board_name, units } | FileType::PanelFile { board_name, units } => {
+            FileType::BoardFile { board_name, units }
+            | FileType::PanelFile { board_name, units } => {
                 format!("{} {}\n", board_name, units)
             }
-            FileType::LibraryFile { .. } => String::new()
+            FileType::LibraryFile { .. } => String::new(),
         };
         write!(
             f,
             ".HEADER\n{} 3.0 {} {} {}\n{}.END_HEADER\n",
-            self.ty,
-            self.source,
-            self.date,
-            self.board_file_version,
-            record1
+            self.ty, self.source, self.date, self.board_file_version, record1
         )
     }
 }
@@ -75,14 +72,14 @@ impl<'a> Display for Header<'a> {
 pub enum FileType<'a> {
     BoardFile {
         board_name: Either<&'a str, String>,
-        units: Unit
+        units: Unit,
     },
     PanelFile {
         board_name: Either<&'a str, String>,
-        units: Unit
+        units: Unit,
     },
     LibraryFile {
-        components: Vec<ComponentDefinition<'a>>
+        components: Vec<ComponentDefinition<'a>>,
     },
 }
 
@@ -99,7 +96,7 @@ impl<'a> Display for FileType<'a> {
 #[derive(Clone, Debug)]
 pub enum Unit {
     SImm,
-    Mils
+    Mils,
 }
 
 impl Display for Unit {
@@ -117,7 +114,7 @@ pub struct IdfSection<'a> {
     name: Either<&'a str, String>,
     /// e.g. ECAD in 'BOARD_OUTLINE ECAD'
     args: Vec<Either<&'a str, String>>,
-    records: Vec<Vec<IdfValue<'a>>>
+    records: Vec<Vec<IdfValue<'a>>>,
 }
 
 impl<'a> Display for IdfSection<'a> {
@@ -156,8 +153,12 @@ impl<'a> Display for ComponentPlacement<'a> {
             escape_string(&self.package_name),
             escape_string(&self.part_number),
             self.designator,
-            self.x, self.y, self.z, self.rotation,
-            self.board_side, self.placement_status
+            self.x,
+            self.y,
+            self.z,
+            self.rotation,
+            self.board_side,
+            self.placement_status
         )
     }
 }
@@ -175,10 +176,7 @@ impl<'a> ComponentDefinition<'a> {
     pub fn to_string(&self) -> String {
         let mut s = format!(
             ".ELECTRICAL\n{} {} {} {:.4}\n",
-            self.geometry_name,
-            self.part_number,
-            self.units,
-            self.height
+            self.geometry_name, self.part_number, self.units, self.height
         );
         for p in &self.points {
             let label = if p.label == LoopLabel::CounterClockwise {
@@ -186,13 +184,7 @@ impl<'a> ComponentDefinition<'a> {
             } else {
                 1
             };
-            s.push_str(format!(
-                "{} {:.4} {:.4} {:.4}\n",
-                label,
-                p.x,
-                p.y,
-                p.angle
-            ).as_str());
+            s.push_str(format!("{} {:.4} {:.4} {:.4}\n", label, p.x, p.y, p.angle).as_str());
         }
         s.push_str(".END_ELECTRICAL\n");
         s
@@ -204,20 +196,20 @@ pub struct Point {
     pub label: LoopLabel,
     pub x: f32,
     pub y: f32,
-    pub angle: f32
+    pub angle: f32,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum LoopLabel {
     Clockwise,
-    CounterClockwise
+    CounterClockwise,
 }
 
 #[derive(Clone, Debug)]
 pub enum ReferenceDesignator<'a> {
     Any(Either<&'a str, String>),
     NoRefDes,
-    Board
+    Board,
 }
 
 impl<'a> Display for ReferenceDesignator<'a> {
@@ -225,7 +217,7 @@ impl<'a> Display for ReferenceDesignator<'a> {
         match self {
             ReferenceDesignator::Any(d) => write!(f, "{d}"),
             ReferenceDesignator::NoRefDes => write!(f, "NOREFDES"),
-            ReferenceDesignator::Board => write!(f, "BOARD")
+            ReferenceDesignator::Board => write!(f, "BOARD"),
         }
     }
 }
@@ -234,11 +226,11 @@ impl<'a> ReferenceDesignator<'a> {
     pub fn is_test_point(&self) -> bool {
         match self {
             ReferenceDesignator::Any(d) => match d {
-                Either::Left(d)  => d.starts_with("TP"),
-                Either::Right(d)  => d.starts_with("TP"),
-            }
+                Either::Left(d) => d.starts_with("TP"),
+                Either::Right(d) => d.starts_with("TP"),
+            },
             ReferenceDesignator::NoRefDes => false,
-            ReferenceDesignator::Board => false
+            ReferenceDesignator::Board => false,
         }
     }
 }
@@ -246,14 +238,14 @@ impl<'a> ReferenceDesignator<'a> {
 #[derive(Clone, Debug)]
 pub enum BoardSide {
     Top,
-    Bottom
+    Bottom,
 }
 
 impl Display for BoardSide {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             BoardSide::Top => write!(f, "TOP"),
-            BoardSide::Bottom => write!(f, "BOTTOM")
+            BoardSide::Bottom => write!(f, "BOTTOM"),
         }
     }
 }
@@ -263,7 +255,7 @@ pub enum PlacementStatus {
     Placed,
     Unplaced,
     MCad,
-    ECad
+    ECad,
 }
 
 impl Display for PlacementStatus {
@@ -289,29 +281,36 @@ impl<'a> Display for IdfValue<'a> {
         match self {
             IdfValue::Integer(x) => write!(f, "{x}"),
             IdfValue::Float(x) => write!(f, "{x:.4}"),
-            IdfValue::String(s) => write!(f, "{}", escape_string(s))
+            IdfValue::String(s) => write!(f, "{}", escape_string(s)),
         }
     }
 }
 
 fn escape_string<'a: 'b, 'b>(s: &'b Either<&'a str, String>) -> &'b str {
     match s {
-        Either::Left(s) => if s.is_empty() {
-            "\"\""
-        } else {
-            s
+        Either::Left(s) => {
+            if s.is_empty() {
+                "\"\""
+            } else {
+                s
+            }
         }
-        Either::Right(s) => if s.is_empty() {
-            "\"\""
-        } else {
-            s.as_str()
+        Either::Right(s) => {
+            if s.is_empty() {
+                "\"\""
+            } else {
+                s.as_str()
+            }
         }
     }
 }
 
 macro_rules! next_inner {
     ($pairs:expr) => {
-        $pairs.next().ok_or(Error::GrammarExpectedPair)?.into_inner()
+        $pairs
+            .next()
+            .ok_or(Error::GrammarExpectedPair)?
+            .into_inner()
     };
 }
 
@@ -337,7 +336,6 @@ macro_rules! next_int {
             return Err(Error::GrammarExpectedRule(pair.as_rule()));
         }
     }};
-
 }
 
 macro_rules! next_float {
@@ -379,32 +377,26 @@ impl<'a> Idf30<'a> {
                 let component = parse_component_definition(&mut section)?;
                 components_definitions.push(component);
             } else {
-                let args = section_header.into_iter().map(|arg| Either::Left(arg.as_str())).collect();
+                let args = section_header
+                    .into_iter()
+                    .map(|arg| Either::Left(arg.as_str()))
+                    .collect();
                 let mut records = vec![];
                 while let Some(record) = section.next() {
                     if record.as_rule() == Rule::section_name {
                         break;
                     }
                     let record = record.into_inner();
-                    let values: Result<Vec<IdfValue>, Error> = record.into_iter().map(|p| {
-                        match p.as_rule() {
-                            Rule::integer => {
-                                Ok(IdfValue::Integer(p.as_str().parse()?))
-                            }
-                            Rule::float => {
-                                Ok(IdfValue::Float(p.as_str().parse()?))
-                            }
-                            Rule::string => {
-                                Ok(IdfValue::String(Either::Left(p.as_str())))
-                            }
-                            Rule::quoted_string => {
-                                Ok(IdfValue::String(Either::Left(p.as_str())))
-                            }
-                            _ => {
-                                return Err(Error::GrammarExpectedRule(Rule::value))
-                            }
-                        }
-                    }).collect();
+                    let values: Result<Vec<IdfValue>, Error> = record
+                        .into_iter()
+                        .map(|p| match p.as_rule() {
+                            Rule::integer => Ok(IdfValue::Integer(p.as_str().parse()?)),
+                            Rule::float => Ok(IdfValue::Float(p.as_str().parse()?)),
+                            Rule::string => Ok(IdfValue::String(Either::Left(p.as_str()))),
+                            Rule::quoted_string => Ok(IdfValue::String(Either::Left(p.as_str()))),
+                            _ => return Err(Error::GrammarExpectedRule(Rule::value)),
+                        })
+                        .collect();
                     records.push(values?);
                 }
                 let section = IdfSection {
@@ -417,7 +409,9 @@ impl<'a> Idf30<'a> {
         }
 
         if matches!(header.ty, FileType::LibraryFile { .. }) {
-            header.ty = FileType::LibraryFile { components: components_definitions };
+            header.ty = FileType::LibraryFile {
+                components: components_definitions,
+            };
         }
 
         Ok(Idf30 {
@@ -451,16 +445,22 @@ impl<'a> Idf30<'a> {
     }
 }
 
-fn parse_component_placement<'a>(section: &mut Pairs<Rule>, mut record: Pairs<'a, Rule>) -> Result<ComponentPlacement<'a>, Error> {
+fn parse_component_placement<'a>(
+    section: &mut Pairs<Rule>,
+    mut record: Pairs<'a, Rule>,
+) -> Result<ComponentPlacement<'a>, Error> {
     let package_name = Either::Left(next_str!(record));
     let part_number = Either::Left(next_str!(record));
     let designator = next_str!(record);
     let designator = match designator {
         "NOREFDES" => ReferenceDesignator::NoRefDes,
         "BOARD" => ReferenceDesignator::Board,
-        d => ReferenceDesignator::Any(Either::Left(d))
+        d => ReferenceDesignator::Any(Either::Left(d)),
     };
-    let mut record = section.next().ok_or(Error::MalformedPlacementSection)?.into_inner();
+    let mut record = section
+        .next()
+        .ok_or(Error::MalformedPlacementSection)?
+        .into_inner();
     let x = next_float!(record);
     let y = next_float!(record);
     let z = next_float!(record);
@@ -514,26 +514,16 @@ fn parse_header<'a>(pairs: &mut Pairs<'a, Rule>) -> Result<Header<'a>, Error> {
                 }
             };
             if t == "BOARD_FILE" {
-                FileType::BoardFile {
-                    board_name,
-                    units
-                }
+                FileType::BoardFile { board_name, units }
             } else {
-                FileType::PanelFile {
-                    board_name,
-                    units
-                }
+                FileType::PanelFile { board_name, units }
             }
-        },
-        "LIBRARY_FILE" => FileType::LibraryFile {
-            components: vec![]
-        },
-        _ => {
-            return Err(Error::WrongFileType)
         }
+        "LIBRARY_FILE" => FileType::LibraryFile { components: vec![] },
+        _ => return Err(Error::WrongFileType),
     };
     if next_str!(header_record0) != "3.0" {
-        return Err(Error::UnsupportedVersion)
+        return Err(Error::UnsupportedVersion);
     }
     let source = Either::Left(next_str!(header_record0));
     let date = Either::Left(next_str!(header_record0));
@@ -547,7 +537,9 @@ fn parse_header<'a>(pairs: &mut Pairs<'a, Rule>) -> Result<Header<'a>, Error> {
     Ok(header)
 }
 
-fn parse_component_definition<'a>(section: &mut Pairs<'a, Rule>) -> Result<ComponentDefinition<'a>, Error> {
+fn parse_component_definition<'a>(
+    section: &mut Pairs<'a, Rule>,
+) -> Result<ComponentDefinition<'a>, Error> {
     // println!("cmp def: {section:?}");
     let mut record2 = next_inner!(section);
     let geometry_name = Either::Left(next_str!(record2));
@@ -581,12 +573,7 @@ fn parse_component_definition<'a>(section: &mut Pairs<'a, Rule>) -> Result<Compo
         let x = next_float!(coords);
         let y = next_float!(coords);
         let angle = next_float!(coords);
-        points.push(Point {
-            label,
-            x,
-            y,
-            angle,
-        });
+        points.push(Point { label, x, y, angle });
     }
     Ok(ComponentDefinition {
         geometry_name,

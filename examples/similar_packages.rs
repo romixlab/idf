@@ -1,8 +1,8 @@
+use either::Either;
+use idf::idf30::{FileType, Idf30};
 use std::env;
 use std::fmt::format;
 use std::fs::read_to_string;
-use either::Either;
-use idf::idf30::{FileType, Idf30};
 
 fn main() {
     let mut args = env::args().into_iter().skip(1);
@@ -18,7 +18,11 @@ fn main() {
     ldf_file.header.source = Either::Right(format!("rust_idf_{}", idf_file.header.source));
 
     if let FileType::BoardFile { board_name, .. } = &idf_file.header.ty {
-        println!("Name: {}\nComponents placed: {}", board_name, idf_file.placement.len());
+        println!(
+            "Name: {}\nComponents placed: {}",
+            board_name,
+            idf_file.placement.len()
+        );
 
         let mut removed = 0;
         idf_file.placement.retain(|c| {
